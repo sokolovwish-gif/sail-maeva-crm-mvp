@@ -9,6 +9,7 @@ const schema = z.object({
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
   PUBLIC_WEBHOOK_URL: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
+  OPENAI_BASE_URL: z.string().default("https://api.openai.com/v1"),
   OPENAI_MODEL: z.string().default("gpt-4.1-mini"),
   AI_RESPONSES_ENABLED: z.enum(["true", "false"]).default("true").transform((value) => value === "true"),
   AI_REPLY_DELAY_MIN_SECONDS: z.coerce.number().default(45),

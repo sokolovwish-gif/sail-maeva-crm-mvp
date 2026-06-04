@@ -36,7 +36,7 @@ export async function decideAiReply(input: {
   }
 
   const prompt = buildPrompt(input.messageText, input.history);
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetch(`${normalizeBaseUrl(env.OPENAI_BASE_URL)}/chat/completions`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${env.OPENAI_API_KEY}`,
@@ -44,37 +44,30 @@ export async function decideAiReply(input: {
     },
     body: JSON.stringify({
       model: env.OPENAI_MODEL,
-      input: prompt,
-      text: {
-        format: {
-          type: "json_schema",
+      messages: [
+        {
+          role: "system",
+          content: "You are an AI assistant for Telegram Business replies. Return only valid JSON that matches the schema."
+        },
+        { role: "user", content: prompt }
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
           name: "maeva_reply_decision",
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              mode: { type: "string", enum: ["auto_send", "draft_for_assistant", "hold_for_human"] },
-              intent: { type: "string" },
-              confidence: { type: "number" },
-              riskFlags: { type: "array", items: { type: "string" } },
-              reason: { type: "string" },
-              draftText: { type: "string" },
-              finalText: { type: "string" }
-            },
-            required: ["mode", "intent", "confidence", "riskFlags", "reason", "draftText", "finalText"]
-          },
-          strict: true
+          strict: true,
+          schema: aiDecisionSchema
         }
       }
     })
   });
 
-  const body = await response.json() as { output_text?: string; error?: unknown };
+  const body = await response.json() as ChatCompletionResponse;
   if (!response.ok) {
-    throw new Error(`OpenAI response failed ${response.status}: ${JSON.stringify(body)}`);
+    throw new Error(`AI provider response failed ${response.status}: ${JSON.stringify(body)}`);
   }
 
-  const outputText = extractOutputText(body);
+  const outputText = extractChatCompletionText(body);
   const parsed = JSON.parse(outputText) as AiDecision;
 
   const secondSafety = evaluateSafety(`${parsed.finalText ?? ""}\n${parsed.draftText ?? ""}`);
@@ -118,12 +111,38 @@ function buildPrompt(messageText: string, history: MessageRecord[]): string {
   });
 }
 
-function extractOutputText(body: { output_text?: string; [key: string]: unknown }): string {
-  if (body.output_text) return body.output_text;
-  const output = body.output as Array<{ content?: Array<{ text?: string }> }> | undefined;
-  const text = output?.flatMap((item) => item.content ?? []).map((item) => item.text).find(Boolean);
-  if (!text) throw new Error("OpenAI response did not include output_text");
+const aiDecisionSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    mode: { type: "string", enum: ["auto_send", "draft_for_assistant", "hold_for_human"] },
+    intent: { type: "string" },
+    confidence: { type: "number" },
+    riskFlags: { type: "array", items: { type: "string" } },
+    reason: { type: "string" },
+    draftText: { type: "string" },
+    finalText: { type: "string" }
+  },
+  required: ["mode", "intent", "confidence", "riskFlags", "reason", "draftText", "finalText"]
+} as const;
+
+type ChatCompletionResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+  error?: unknown;
+};
+
+function extractChatCompletionText(body: ChatCompletionResponse): string {
+  const text = body.choices?.[0]?.message?.content;
+  if (!text) throw new Error("AI provider response did not include message content");
   return text;
+}
+
+function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, "");
 }
 
 function fallbackDecision(messageText: string, riskFlags: string[]): AiDecision {
