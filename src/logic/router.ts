@@ -91,6 +91,8 @@ export async function handleIncomingMessage(incoming: IncomingTelegramMessage, r
     }
   }
 
+  db.supersedePendingDelayedResponses(conversation.id);
+
   const mustNotifyHumanNow = env.HUMAN_HANDOFF_ON_SALES && Boolean(detectSalesHandoff(text));
   const delayMs = mustNotifyHumanNow ? 0 : randomReplyDelayMs();
   const jobId = db.enqueueDelayedResponse({

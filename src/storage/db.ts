@@ -63,6 +63,17 @@ export type AiDecisionInput = {
   rawJson?: unknown;
 };
 
+export type ScriptedResponseLogInput = {
+  conversationId: number;
+  messageId: number;
+  matchedIntent: string;
+  matchedVariantId?: string;
+  mode: "scripted_auto_send" | "ai_auto_send" | "human_handoff";
+  delaySeconds: number;
+  wasSent: boolean;
+  handoffReason?: string;
+};
+
 export type UpsertUserInput = {
   telegramUserId?: string;
   username?: string;
@@ -79,6 +90,7 @@ export class AppDb {
     this.db.pragma("journal_mode = WAL");
     this.db.exec(schemaSql);
     this.ensureAiDecisionColumns();
+    this.ensureScriptedResponseLogsTable();
   }
 
   upsertUser(input: UpsertUserInput): UserRecord {
@@ -204,6 +216,17 @@ export class AppDb {
     return Number(result.lastInsertRowid);
   }
 
+  supersedePendingDelayedResponses(conversationId: number): void {
+    this.db.prepare(`
+      UPDATE delayed_responses
+      SET status = 'failed',
+          last_error = 'superseded_by_new_inbound_message',
+          updated_at = CURRENT_TIMESTAMP
+      WHERE conversation_id = ?
+        AND status = 'pending'
+    `).run(conversationId);
+  }
+
   getDueDelayedResponses(limit = 10): DelayedResponseRecord[] {
     return this.db.prepare(`
       SELECT * FROM delayed_responses
@@ -261,6 +284,59 @@ export class AppDb {
       ORDER BY id DESC
       LIMIT ?
     `).all(conversationId, limit).reverse() as MessageRecord[];
+  }
+
+  hasNewerInboundMessage(conversationId: number, messageId: number): boolean {
+    const row = this.db.prepare(`
+      SELECT 1
+      FROM messages
+      WHERE conversation_id = @conversationId
+        AND direction = 'inbound'
+        AND id > @messageId
+      LIMIT 1
+    `).get({ conversationId, messageId }) as { 1: number } | undefined;
+    return Boolean(row);
+  }
+
+  getLastScriptedVariant(conversationId: number): string | undefined {
+    const row = this.db.prepare(`
+      SELECT matched_variant_id
+      FROM scripted_response_logs
+      WHERE conversation_id = @conversationId
+        AND matched_variant_id IS NOT NULL
+      ORDER BY id DESC
+      LIMIT 1
+    `).get({ conversationId }) as { matched_variant_id: string | null } | undefined;
+    return row?.matched_variant_id ?? undefined;
+  }
+
+  saveScriptedResponseLog(input: ScriptedResponseLogInput): number {
+    const result = this.db.prepare(`
+      INSERT INTO scripted_response_logs (
+        conversation_id,
+        message_id,
+        matched_intent,
+        matched_variant_id,
+        mode,
+        delay_seconds,
+        was_sent,
+        handoff_reason
+      )
+      VALUES (
+        @conversationId,
+        @messageId,
+        @matchedIntent,
+        @matchedVariantId,
+        @mode,
+        @delaySeconds,
+        @wasSent,
+        @handoffReason
+      )
+    `).run({
+      ...input,
+      wasSent: input.wasSent ? 1 : 0
+    });
+    return Number(result.lastInsertRowid);
   }
 
   saveAiDecision(input: AiDecisionInput): number {
@@ -337,5 +413,22 @@ export class AppDb {
         this.db.exec(`ALTER TABLE ai_decisions ADD COLUMN ${name} ${type}`);
       }
     }
+  }
+
+  private ensureScriptedResponseLogsTable(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS scripted_response_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        conversation_id INTEGER NOT NULL,
+        message_id INTEGER NOT NULL,
+        matched_intent TEXT NOT NULL,
+        matched_variant_id TEXT,
+        mode TEXT NOT NULL,
+        delay_seconds INTEGER NOT NULL DEFAULT 0,
+        was_sent INTEGER NOT NULL DEFAULT 0,
+        handoff_reason TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
   }
 }

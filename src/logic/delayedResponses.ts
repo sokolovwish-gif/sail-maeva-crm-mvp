@@ -45,7 +45,18 @@ async function processJob(job: DelayedResponseRecord): Promise<void> {
     const conversation = db.getConversation(job.conversation_id);
     const history = db.getRecentMessages(job.conversation_id, 10);
 
-    const decision = await generateAIResponse(message.text, history);
+    if (db.hasNewerInboundMessage(conversation.id, message.id)) {
+      db.markDelayedResponseDone(job.id);
+      logger.info({ jobId: job.id, conversationId: conversation.id }, "delayed response skipped: newer inbound message exists");
+      return;
+    }
+
+    const forceHumanHandoffReason = conversation.status === "human_handoff" || conversation.status === "assistant_active"
+      ? `Диалог уже в ручном режиме: ${conversation.status}`
+      : undefined;
+
+    const lastVariantId = db.getLastScriptedVariant(conversation.id);
+    const decision = await generateAIResponse(message.text, history, { lastVariantId, forceHumanHandoffReason });
 
     db.saveAiDecision({
       messageId: message.id,
@@ -75,9 +86,29 @@ async function processJob(job: DelayedResponseRecord): Promise<void> {
         businessConnectionId: conversation.business_connection_id ?? undefined
       });
       db.saveMessage({ conversationId: conversation.id, direction: "outbound", text: decision.answerText });
+      db.saveScriptedResponseLog({
+        conversationId: conversation.id,
+        messageId: message.id,
+        matchedIntent: decision.matchedIntentId ?? decision.intent,
+        matchedVariantId: decision.matchedVariantId,
+        mode: decision.decision,
+        delaySeconds: decision.delaySeconds,
+        wasSent: true
+      });
       logger.info({ jobId: job.id, conversationId: conversation.id, intent: decision.intent }, "AI auto-reply sent");
     } else if (decision.decision === "human_handoff") {
       await notifyAssistant(message.text, decision);
+      db.updateConversationStatus(conversation.id, "human_handoff", "assistant");
+      db.saveScriptedResponseLog({
+        conversationId: conversation.id,
+        messageId: message.id,
+        matchedIntent: decision.matchedIntentId ?? decision.intent,
+        matchedVariantId: decision.matchedVariantId,
+        mode: decision.decision,
+        delaySeconds: 0,
+        wasSent: false,
+        handoffReason: decision.handoffReason || decision.assistantNote
+      });
       logger.info({ jobId: job.id, conversationId: conversation.id, mode: decision.decision, intent: decision.intent }, "AI decision sent to assistant");
     }
 

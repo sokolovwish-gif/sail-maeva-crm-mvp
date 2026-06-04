@@ -73,6 +73,39 @@ src/ai/knowledge/eval_cases.json            - тестовые кейсы кач
 npm run knowledge:validate
 ```
 
+## Библиотека Скриптов
+
+Главный файл:
+
+```text
+src/ai/knowledge/scripted_responses.json
+```
+
+Структура:
+
+- `global_rules.never_auto_send_if_contains` - слова и фразы, при которых клиенту нельзя отвечать автоматически.
+- `global_rules.forbidden_auto_phrases` - фразы, которые нельзя отправлять клиенту даже внутри готового ответа.
+- `intents[]` - набор правил.
+- `mode=human_handoff` - бот молчит и уведомляет ассистента.
+- `mode=scripted_auto_send` - бот выбирает один из вариантов и отправляет с задержкой.
+- `mode=ai_auto_send` - резервный слой, если скрипта нет.
+
+Чтобы добавить новый intent:
+
+1. Добавьте объект в `intents`.
+2. Укажите `id`, `mode`, `description`, `triggers`.
+3. Для `scripted_auto_send` добавьте минимум 2 варианта в `variants`.
+4. Для `human_handoff` добавьте `handoff_reason`.
+5. Запустите `npm run knowledge:validate`.
+
+Если совпало несколько правил, приоритет такой:
+
+```text
+human_handoff -> scripted_auto_send -> ai_auto_send
+```
+
+AI используется только если готовый скрипт не найден и вопрос безопасный. Продажа, оплата, договор, точные места и точная цена всегда уходят человеку.
+
 ## Telegram Business
 
 - `business_message` - реальная переписка от Telegram Business-аккаунта.

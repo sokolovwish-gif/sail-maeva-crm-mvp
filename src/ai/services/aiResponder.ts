@@ -6,7 +6,29 @@ import { detectSalesHandoff } from "./salesHandoff.js";
 import { findScriptedResponse } from "./scriptedResponder.js";
 import { applySafetyDecision } from "./safetyChecker.js";
 
-export async function generateAIResponse(input: string, context: MessageRecord[]): Promise<AIResponseDecision> {
+export async function generateAIResponse(
+  input: string,
+  context: MessageRecord[],
+  options: { lastVariantId?: string; forceHumanHandoffReason?: string } = {}
+): Promise<AIResponseDecision> {
+  if (options.forceHumanHandoffReason) {
+    return {
+      intent: "unknown",
+      decision: "human_handoff",
+      confidence: 1,
+      riskLevel: "high",
+      clientMood: "",
+      detectedFear: "",
+      answerText: "",
+      assistantNote: `Бот молчит. Причина передачи: ${options.forceHumanHandoffReason}`,
+      handoffReason: options.forceHumanHandoffReason,
+      delaySeconds: 0,
+      shouldNotifyAssistant: true,
+      shouldSaveMemory: false,
+      forbiddenTriggered: true
+    };
+  }
+
   const sales = detectSalesHandoff(input);
   if (sales && env.HUMAN_HANDOFF_ON_SALES) {
     return {
@@ -26,9 +48,8 @@ export async function generateAIResponse(input: string, context: MessageRecord[]
     };
   }
 
-  const scripted = findScriptedResponse(input);
+  const scripted = findScriptedResponse(input, { lastVariantId: options.lastVariantId });
   if (scripted) return scripted;
 
   return applySafetyDecision(await classifyWithAI(input, context));
 }
-

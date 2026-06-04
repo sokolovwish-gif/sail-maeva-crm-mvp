@@ -27,6 +27,8 @@ export type AIResponseDecision = {
   answerText: string;
   assistantNote: string;
   handoffReason: string;
+  matchedIntentId?: string;
+  matchedVariantId?: string;
   delaySeconds: number;
   shouldNotifyAssistant: boolean;
   shouldSaveMemory: boolean;

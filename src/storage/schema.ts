@@ -94,4 +94,19 @@ CREATE TABLE IF NOT EXISTS ai_decisions (
   FOREIGN KEY(message_id) REFERENCES messages(id),
   FOREIGN KEY(conversation_id) REFERENCES conversations(id)
 );
+
+CREATE TABLE IF NOT EXISTS scripted_response_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conversation_id INTEGER NOT NULL,
+  message_id INTEGER NOT NULL,
+  matched_intent TEXT NOT NULL,
+  matched_variant_id TEXT,
+  mode TEXT NOT NULL CHECK(mode IN ('scripted_auto_send', 'ai_auto_send', 'human_handoff')),
+  delay_seconds INTEGER NOT NULL DEFAULT 0,
+  was_sent INTEGER NOT NULL DEFAULT 0,
+  handoff_reason TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(conversation_id) REFERENCES conversations(id),
+  FOREIGN KEY(message_id) REFERENCES messages(id)
+);
 `;

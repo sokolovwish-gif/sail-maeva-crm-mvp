@@ -33,10 +33,46 @@ for (const [index, example] of examples.entries()) {
 const forbidden = readJson<string[]>("forbidden_phrases.json", []);
 if (forbidden.length === 0) errors.push("forbidden_phrases.json must not be empty");
 
-const scripted = readJson<Record<string, string[]>>("scripted_responses.json", {});
-for (const [intent, variants] of Object.entries(scripted)) {
-  if (!Array.isArray(variants) || variants.length < 2) {
-    errors.push(`scripted_responses.json.${intent} must include at least 2 variants`);
+const scripted = readJson<{
+  version?: number;
+  global_rules?: {
+    never_auto_send_if_contains?: string[];
+    forbidden_auto_phrases?: string[];
+  };
+  intents?: Array<{
+    id?: string;
+    mode?: string;
+    triggers?: string[];
+    variants?: Array<{ id?: string; text?: string }>;
+    handoff_reason?: string;
+  }>;
+}>("scripted_responses.json", {});
+
+if (!scripted.version) errors.push("scripted_responses.json must include version");
+if (!scripted.global_rules?.never_auto_send_if_contains?.length) {
+  errors.push("scripted_responses.json global_rules.never_auto_send_if_contains must not be empty");
+}
+if (!scripted.global_rules?.forbidden_auto_phrases?.length) {
+  errors.push("scripted_responses.json global_rules.forbidden_auto_phrases must not be empty");
+}
+if (!scripted.intents?.length) errors.push("scripted_responses.json must include intents");
+
+for (const [index, intent] of (scripted.intents ?? []).entries()) {
+  if (!intent.id || !intent.mode || !Array.isArray(intent.triggers)) {
+    errors.push(`scripted_responses.json intents[${index}] must include id, mode, triggers`);
+  }
+  if (intent.mode === "scripted_auto_send") {
+    if (!intent.variants || intent.variants.length < 2) {
+      errors.push(`scripted_responses.json ${intent.id} must include at least 2 variants`);
+    }
+    for (const [variantIndex, variant] of (intent.variants ?? []).entries()) {
+      if (!variant.id || !variant.text) {
+        errors.push(`scripted_responses.json ${intent.id}.variants[${variantIndex}] must include id and text`);
+      }
+    }
+  }
+  if (intent.mode === "human_handoff" && !intent.handoff_reason) {
+    errors.push(`scripted_responses.json ${intent.id} must include handoff_reason`);
   }
 }
 
