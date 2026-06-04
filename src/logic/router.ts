@@ -96,6 +96,22 @@ export async function handleIncomingMessage(incoming: IncomingTelegramMessage, r
     db.updateConversationStatus(conversation.id, classification.status, classification.assignedTo);
   }
 
+  if (incoming.message.business_connection_id) {
+    try {
+      const businessConnection = await telegram.getBusinessConnection(incoming.message.business_connection_id);
+      logger.info({
+        conversationId: conversation.id,
+        businessConnectionId: maskId(incoming.message.business_connection_id),
+        businessConnectionUserChatId: businessConnection?.user_chat_id,
+        businessConnectionIsEnabled: businessConnection?.is_enabled,
+        businessConnectionCanReply: businessConnection?.rights?.can_reply,
+        businessConnectionCanReadMessages: businessConnection?.rights?.can_read_messages
+      }, "telegram business connection inspected");
+    } catch (error) {
+      logger.error({ error: serializeError(error), conversationId: conversation.id }, "telegram business connection inspection failed");
+    }
+  }
+
   const replyText = scripts[classification.intent];
   if (replyText) {
     try {
@@ -182,4 +198,9 @@ function serializeError(error: unknown) {
     message: error.message,
     stack: error.stack
   };
+}
+
+function maskId(value: string): string {
+  if (value.length <= 8) return "****";
+  return `${value.slice(0, 4)}...${value.slice(-4)}`;
 }
