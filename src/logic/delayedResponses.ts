@@ -1,9 +1,9 @@
-import { decideAiReply, type AiDecision } from "../ai/assistant.js";
+import { generateAIResponse } from "../ai/services/aiResponder.js";
+import type { AIResponseDecision } from "../ai/types.js";
 import { env } from "../config/env.js";
 import { logger } from "../logger.js";
 import { AppDb, type DelayedResponseRecord } from "../storage/db.js";
 import { TelegramSender } from "../telegram/sender.js";
-import { buildAssistantNotification } from "./scripts.js";
 
 const db = new AppDb();
 const telegram = new TelegramSender();
@@ -11,8 +11,8 @@ const telegram = new TelegramSender();
 let workerStarted = false;
 
 export function randomReplyDelayMs(): number {
-  const min = Math.max(0, env.AI_REPLY_DELAY_MIN_SECONDS);
-  const max = Math.max(min, env.AI_REPLY_DELAY_MAX_SECONDS);
+  const min = Math.max(0, env.MIN_REPLY_DELAY_SECONDS);
+  const max = Math.max(min, env.MAX_REPLY_DELAY_SECONDS);
   const seconds = min + Math.floor(Math.random() * (max - min + 1));
   return seconds * 1000;
 }
@@ -45,36 +45,40 @@ async function processJob(job: DelayedResponseRecord): Promise<void> {
     const conversation = db.getConversation(job.conversation_id);
     const history = db.getRecentMessages(job.conversation_id, 10);
 
-    const decision = await decideAiReply({
-      messageText: message.text,
-      history
-    });
+    const decision = await generateAIResponse(message.text, history);
 
     db.saveAiDecision({
       messageId: message.id,
       conversationId: conversation.id,
-      mode: decision.mode,
+      mode: decision.decision,
+      decision: decision.decision,
       intent: decision.intent,
       confidence: decision.confidence,
-      riskFlags: decision.riskFlags,
-      reason: decision.reason,
-      draftText: decision.draftText,
-      finalText: decision.finalText,
+      riskLevel: decision.riskLevel,
+      clientMood: decision.clientMood,
+      detectedFear: decision.detectedFear,
+      riskFlags: decision.forbiddenTriggered ? ["forbidden"] : [],
+      reason: decision.assistantNote,
+      answerText: decision.answerText,
+      assistantNote: decision.assistantNote,
+      forbiddenTriggered: decision.forbiddenTriggered,
+      draftText: decision.decision === "draft_for_assistant" ? decision.answerText : undefined,
+      finalText: decision.decision === "auto_send" ? decision.answerText : undefined,
       model: env.OPENAI_MODEL,
       rawJson: decision.raw
     });
 
-    if (decision.mode === "auto_send" && decision.finalText) {
+    if (decision.decision === "auto_send" && decision.answerText) {
       await telegram.sendMessage({
         chatId: conversation.telegram_chat_id,
-        text: decision.finalText,
+        text: decision.answerText,
         businessConnectionId: conversation.business_connection_id ?? undefined
       });
-      db.saveMessage({ conversationId: conversation.id, direction: "outbound", text: decision.finalText });
+      db.saveMessage({ conversationId: conversation.id, direction: "outbound", text: decision.answerText });
       logger.info({ jobId: job.id, conversationId: conversation.id, intent: decision.intent }, "AI auto-reply sent");
     } else {
-      await notifyAssistant(conversation, message.text, decision);
-      logger.info({ jobId: job.id, conversationId: conversation.id, mode: decision.mode, intent: decision.intent }, "AI decision sent to assistant");
+      await notifyAssistant(message.text, decision);
+      logger.info({ jobId: job.id, conversationId: conversation.id, mode: decision.decision, intent: decision.intent }, "AI decision sent to assistant");
     }
 
     db.markDelayedResponseDone(job.id);
@@ -84,22 +88,43 @@ async function processJob(job: DelayedResponseRecord): Promise<void> {
   }
 }
 
-async function notifyAssistant(
-  conversation: { id: number; telegram_chat_id: string; business_connection_id: string | null },
-  lastMessage: string,
-  decision: AiDecision
-): Promise<void> {
+async function notifyAssistant(lastMessage: string, decision: AIResponseDecision): Promise<void> {
   const assistantChatId = env.ASSISTANT_TELEGRAM_CHAT_ID ?? env.MANAGER_TELEGRAM_CHAT_ID;
   if (!assistantChatId) return;
 
-  const text = buildAssistantNotification({
-    firstName: "",
-    username: "",
-    lastMessage,
-    detectedInterest: decision.intent,
-    detectedFear: decision.riskFlags.length ? decision.riskFlags.join(", ") : "не определён",
-    leadUrl: `AI mode: ${decision.mode}\nПричина: ${decision.reason}${decision.draftText ? `\n\nЧерновик:\n${decision.draftText}` : ""}`
-  });
+  const text = decision.decision === "hold_for_human"
+    ? [
+        "Нужен человек Sail Maeva",
+        "",
+        "Сообщение клиента:",
+        lastMessage,
+        "",
+        `Причина: ${decision.intent}`,
+        `Риск: ${decision.riskLevel}`,
+        "Заметка:",
+        decision.assistantNote,
+        "",
+        "Бот молчит, чтобы не испортить продажу."
+      ].join("\n")
+    : [
+        "Черновик ответа Sail Maeva",
+        "",
+        "Сообщение клиента:",
+        lastMessage,
+        "",
+        `Решение ИИ: ${decision.decision}`,
+        `Интент: ${decision.intent}`,
+        `Риск: ${decision.riskLevel}`,
+        `Уверенность: ${decision.confidence}`,
+        "",
+        "Черновик:",
+        decision.answerText,
+        "",
+        "Заметка:",
+        decision.assistantNote,
+        "",
+        "Важно: клиенту пока ничего не отправлено."
+      ].join("\n");
 
   await telegram.sendMessage({
     chatId: assistantChatId,

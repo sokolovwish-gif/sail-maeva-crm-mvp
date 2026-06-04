@@ -46,10 +46,17 @@ export type AiDecisionInput = {
   messageId: number;
   conversationId: number;
   mode: "auto_send" | "draft_for_assistant" | "hold_for_human";
+  decision?: "auto_send" | "draft_for_assistant" | "hold_for_human";
   intent: string;
   confidence: number;
+  riskLevel?: string;
+  clientMood?: string;
+  detectedFear?: string;
   riskFlags: string[];
   reason: string;
+  answerText?: string;
+  assistantNote?: string;
+  forbiddenTriggered?: boolean;
   draftText?: string;
   finalText?: string;
   model?: string;
@@ -71,6 +78,7 @@ export class AppDb {
     this.db = new Database(filePath);
     this.db.pragma("journal_mode = WAL");
     this.db.exec(schemaSql);
+    this.ensureAiDecisionColumns();
   }
 
   upsertUser(input: UpsertUserInput): UserRecord {
@@ -261,33 +269,73 @@ export class AppDb {
         message_id,
         conversation_id,
         mode,
+        decision,
         intent,
         confidence,
+        risk_level,
+        client_mood,
+        detected_fear,
         risk_flags,
         reason,
+        answer_text,
+        assistant_note,
+        forbidden_triggered,
         draft_text,
         final_text,
         model,
+        raw_ai_json,
         raw_json
       )
       VALUES (
         @messageId,
         @conversationId,
         @mode,
+        @decision,
         @intent,
         @confidence,
+        @riskLevel,
+        @clientMood,
+        @detectedFear,
         @riskFlags,
         @reason,
+        @answerText,
+        @assistantNote,
+        @forbiddenTriggered,
         @draftText,
         @finalText,
         @model,
+        @rawJson,
         @rawJson
       )
     `).run({
       ...input,
+      decision: input.decision ?? input.mode,
       riskFlags: JSON.stringify(input.riskFlags),
+      forbiddenTriggered: input.forbiddenTriggered ? 1 : 0,
       rawJson: input.rawJson ? JSON.stringify(input.rawJson) : null
     });
     return Number(result.lastInsertRowid);
+  }
+
+  private ensureAiDecisionColumns(): void {
+    const columns = new Set(
+      (this.db.prepare("PRAGMA table_info(ai_decisions)").all() as Array<{ name: string }>).map((column) => column.name)
+    );
+    const missingColumns: Array<[string, string]> = [
+      ["decision", "TEXT"],
+      ["risk_level", "TEXT"],
+      ["client_mood", "TEXT"],
+      ["detected_fear", "TEXT"],
+      ["answer_text", "TEXT"],
+      ["assistant_note", "TEXT"],
+      ["forbidden_triggered", "INTEGER NOT NULL DEFAULT 0"],
+      ["raw_ai_json", "TEXT"]
+    ];
+
+    for (const [name, type] of missingColumns) {
+      if (!columns.has(name)) {
+        this.db.exec(`ALTER TABLE ai_decisions ADD COLUMN ${name} ${type}`);
+      }
+    }
   }
 }

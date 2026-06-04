@@ -12,7 +12,8 @@
     "build": "tsc",
     "test": "vitest run",
     "setup:amocrm": "tsx scripts/setup-amocrm.ts",
-    "telegram:set-webhook": "tsx scripts/set-telegram-webhook.ts"
+    "telegram:set-webhook": "tsx scripts/set-telegram-webhook.ts",
+    "knowledge:validate": "tsx scripts/knowledge/validate-knowledge.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",

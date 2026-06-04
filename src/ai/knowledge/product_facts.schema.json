@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "destinations": { "type": "array", "items": { "type": "string" } },
+    "included": { "type": "array", "items": { "type": "string" } },
+    "notIncluded": { "type": "array", "items": { "type": "string" } },
+    "dates": { "type": "array", "items": { "type": "string" } },
+    "prices": { "type": "array", "items": { "type": "string" } }
+  }
+}
+

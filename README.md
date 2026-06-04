@@ -68,8 +68,14 @@ OPENAI_API_KEY=
 OPENAI_BASE_URL=https://api.vsellm.ru/v1
 OPENAI_MODEL=openai/gpt-4.1-mini
 AI_RESPONSES_ENABLED=true
+AI_DRAFT_ONLY=true
+AI_AUTO_SEND_ENABLED=false
 AI_REPLY_DELAY_MIN_SECONDS=45
 AI_REPLY_DELAY_MAX_SECONDS=120
+MIN_REPLY_DELAY_SECONDS=45
+MAX_REPLY_DELAY_SECONDS=140
+AUTO_SEND_CONFIDENCE_THRESHOLD=0.82
+HUMAN_HANDOFF_CONFIDENCE_THRESHOLD=0.55
 ```
 
 Для VseLLM используйте API key из кабинета VseLLM как `OPENAI_API_KEY`.
@@ -77,8 +83,8 @@ AI_REPLY_DELAY_MAX_SECONDS=120
 Материалы стиля лежат здесь:
 
 ```text
-src/config/style_guide.md
-src/config/examples.json
+src/ai/knowledge/maeva_style_guide.md
+src/ai/knowledge/response_examples.json
 ```
 
 Режимы решения:
@@ -94,6 +100,44 @@ src/config/examples.json
 - реквизиты;
 - конфликт;
 - бронь/закрепление места.
+
+### AI knowledge layer
+
+Редактируемые материалы AI-слоя:
+
+```text
+src/ai/knowledge/maeva_style_guide.md       - стиль Маши
+src/ai/knowledge/response_examples.json     - примеры ответов
+src/ai/knowledge/faq_knowledge.json         - FAQ и факты
+src/ai/knowledge/handoff_rules.json         - правила передачи человеку
+src/ai/knowledge/forbidden_phrases.json     - запрещённые фразы
+src/ai/knowledge/eval_cases.json            - тестовые кейсы качества
+```
+
+Проверить JSON-базу знаний:
+
+```bash
+npm run knowledge:validate
+```
+
+Безопасный стартовый режим, только черновики ассистентке:
+
+```env
+AI_RESPONSES_ENABLED=true
+AI_DRAFT_ONLY=true
+AI_AUTO_SEND_ENABLED=false
+```
+
+В этом режиме клиенту ничего не отправляется автоматически. Бот сохраняет входящее сообщение, AI выбирает intent/decision, пишет черновик и отправляет его ассистентке.
+
+Технически автоответы готовы, но включать их нужно позже:
+
+```env
+AI_DRAFT_ONLY=false
+AI_AUTO_SEND_ENABLED=true
+```
+
+Автоответ уйдёт только если `decision=auto_send`, риск `low`, уверенность выше `AUTO_SEND_CONFIDENCE_THRESHOLD` и не сработали forbidden/handoff правила.
 
 ## amoCRM: что взять
 
@@ -146,8 +190,14 @@ OPENAI_API_KEY=
 OPENAI_BASE_URL=https://api.vsellm.ru/v1
 OPENAI_MODEL=openai/gpt-4.1-mini
 AI_RESPONSES_ENABLED=true
+AI_DRAFT_ONLY=true
+AI_AUTO_SEND_ENABLED=false
 AI_REPLY_DELAY_MIN_SECONDS=45
 AI_REPLY_DELAY_MAX_SECONDS=120
+MIN_REPLY_DELAY_SECONDS=45
+MAX_REPLY_DELAY_SECONDS=140
+AUTO_SEND_CONFIDENCE_THRESHOLD=0.82
+HUMAN_HANDOFF_CONFIDENCE_THRESHOLD=0.55
 
 AMO_BASE_URL=
 AMO_ACCESS_TOKEN=

@@ -90,7 +90,7 @@ export async function handleIncomingMessage(incoming: IncomingTelegramMessage, r
     }
   }
 
-  const delayMs = randomReplyDelayMs();
+  const delayMs = env.AI_DRAFT_ONLY || !env.AI_AUTO_SEND_ENABLED ? 0 : randomReplyDelayMs();
   const jobId = db.enqueueDelayedResponse({
     messageId,
     conversationId: conversation.id,

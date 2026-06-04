@@ -12,8 +12,14 @@ const schema = z.object({
   OPENAI_BASE_URL: z.string().default("https://api.openai.com/v1"),
   OPENAI_MODEL: z.string().default("gpt-4.1-mini"),
   AI_RESPONSES_ENABLED: z.enum(["true", "false"]).default("true").transform((value) => value === "true"),
+  AI_AUTO_SEND_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+  AI_DRAFT_ONLY: z.enum(["true", "false"]).default("true").transform((value) => value === "true"),
   AI_REPLY_DELAY_MIN_SECONDS: z.coerce.number().default(45),
   AI_REPLY_DELAY_MAX_SECONDS: z.coerce.number().default(120),
+  MIN_REPLY_DELAY_SECONDS: z.coerce.number().default(45),
+  MAX_REPLY_DELAY_SECONDS: z.coerce.number().default(140),
+  AUTO_SEND_CONFIDENCE_THRESHOLD: z.coerce.number().default(0.82),
+  HUMAN_HANDOFF_CONFIDENCE_THRESHOLD: z.coerce.number().default(0.55),
   ALLOWED_TELEGRAM_USER_IDS: z.string().default("").transform((value) =>
     value
       .split(",")
