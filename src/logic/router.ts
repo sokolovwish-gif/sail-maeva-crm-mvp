@@ -4,6 +4,7 @@ import { createLead, findLead, leadUrl, updateLead } from "../amocrm/leads.js";
 import { addLeadNote } from "../amocrm/notes.js";
 import { createLeadTask } from "../amocrm/tasks.js";
 import { env } from "../config/env.js";
+import { logger } from "../logger.js";
 import { scripts } from "../config/scripts.js";
 import { AppDb } from "../storage/db.js";
 import { TelegramSender } from "../telegram/sender.js";
@@ -65,29 +66,33 @@ export async function handleIncomingMessage(incoming: IncomingTelegramMessage, r
   let amoContactId = user.amo_contact_id ?? undefined;
 
   if (amo.isConfigured()) {
-    const contactQuery = user.username ? `@${user.username}` : user.telegram_user_id ?? "";
-    const contact = amoContactId ? { id: amoContactId } : contactQuery ? await findContact(amo, contactQuery) : undefined;
-    amoContactId = contact?.id ?? (await createContact(amo, {
-      name: contactName(user.first_name, user.last_name, user.username),
-      username: user.username ?? undefined,
-      telegramUserId: user.telegram_user_id ?? undefined,
-      tags: classification.tags
-    })).id;
-    db.setAmoContactId(user.id, amoContactId);
+    try {
+      const contactQuery = user.username ? `@${user.username}` : user.telegram_user_id ?? "";
+      const contact = amoContactId ? { id: amoContactId } : contactQuery ? await findContact(amo, contactQuery) : undefined;
+      amoContactId = contact?.id ?? (await createContact(amo, {
+        name: contactName(user.first_name, user.last_name, user.username),
+        username: user.username ?? undefined,
+        telegramUserId: user.telegram_user_id ?? undefined,
+        tags: classification.tags
+      })).id;
+      db.setAmoContactId(user.id, amoContactId);
 
-    const leadQuery = user.username ? `@${user.username}` : contactName(user.first_name, user.last_name, user.telegram_user_id);
-    const lead = amoLeadId ? { id: amoLeadId } : await findLead(amo, leadQuery);
-    amoLeadId = lead?.id ?? (await createLead(amo, {
-      name: `Telegram - ${contactName(user.first_name, user.last_name, user.username ?? user.telegram_user_id)}`,
-      contactId: amoContactId,
-      tags: classification.tags,
-      classification
-    })).id;
-    db.updateConversationAmoLead(conversation.id, amoLeadId);
+      const leadQuery = user.username ? `@${user.username}` : contactName(user.first_name, user.last_name, user.telegram_user_id);
+      const lead = amoLeadId ? { id: amoLeadId } : await findLead(amo, leadQuery);
+      amoLeadId = lead?.id ?? (await createLead(amo, {
+        name: `Telegram - ${contactName(user.first_name, user.last_name, user.username ?? user.telegram_user_id)}`,
+        contactId: amoContactId,
+        tags: classification.tags,
+        classification
+      })).id;
+      db.updateConversationAmoLead(conversation.id, amoLeadId);
 
-    await addLeadNote(amo, amoLeadId, `Telegram ${incoming.kind}\n\n${text}`);
-    await updateLead(amo, amoLeadId, { tags: classification.tags, classification });
-    if (classification.shouldCreateAssistantTask) await createLeadTask(amo, amoLeadId);
+      await addLeadNote(amo, amoLeadId, `Telegram ${incoming.kind}\n\n${text}`);
+      await updateLead(amo, amoLeadId, { tags: classification.tags, classification });
+      if (classification.shouldCreateAssistantTask) await createLeadTask(amo, amoLeadId);
+    } catch (error) {
+      logger.error({ error: serializeError(error), conversationId: conversation.id }, "amoCRM sync failed");
+    }
   }
 
   if (classification.status) {
@@ -96,32 +101,49 @@ export async function handleIncomingMessage(incoming: IncomingTelegramMessage, r
 
   const replyText = scripts[classification.intent];
   if (replyText) {
-    await telegram.sendMessage({
-      chatId: chat.id,
-      text: replyText,
-      businessConnectionId: incoming.message.business_connection_id
-    });
-    db.saveMessage({ conversationId: conversation.id, direction: "outbound", text: replyText });
+    try {
+      await telegram.sendMessage({
+        chatId: chat.id,
+        text: replyText,
+        businessConnectionId: incoming.message.business_connection_id
+      });
+      db.saveMessage({ conversationId: conversation.id, direction: "outbound", text: replyText });
+    } catch (error) {
+      logger.error({ error: serializeError(error), conversationId: conversation.id }, "telegram auto-reply failed");
+    }
   }
 
   if (classification.shouldNotifyAssistant) {
     const assistantChatId = env.ASSISTANT_TELEGRAM_CHAT_ID ?? env.MANAGER_TELEGRAM_CHAT_ID;
     if (assistantChatId) {
-      await telegram.sendMessage({
-        chatId: assistantChatId,
-        text: buildAssistantNotification({
-          firstName: user.first_name ?? "",
-          username: user.username ?? "",
-          lastMessage: text,
-          detectedInterest: classification.destination ?? classification.intent,
-          detectedFear: classification.fear ?? "не определён",
-          leadUrl: amoLeadId ? leadUrl(amoLeadId) ?? String(amoLeadId) : "amoCRM не настроена"
-        })
-      });
+      try {
+        await telegram.sendMessage({
+          chatId: assistantChatId,
+          text: buildAssistantNotification({
+            firstName: user.first_name ?? "",
+            username: user.username ?? "",
+            lastMessage: text,
+            detectedInterest: classification.destination ?? classification.intent,
+            detectedFear: classification.fear ?? "не определён",
+            leadUrl: amoLeadId ? leadUrl(amoLeadId) ?? String(amoLeadId) : "amoCRM не настроена"
+          })
+        });
+      } catch (error) {
+        logger.error({ error: serializeError(error), conversationId: conversation.id }, "telegram assistant notification failed");
+      }
     }
   }
 }
 
 function contactName(firstName?: string | null, lastName?: string | null, fallback?: string | null): string {
   return [firstName, lastName].filter(Boolean).join(" ") || fallback || "Telegram user";
+}
+
+function serializeError(error: unknown) {
+  if (!(error instanceof Error)) return error;
+  return {
+    name: error.name,
+    message: error.message,
+    stack: error.stack
+  };
 }
