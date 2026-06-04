@@ -1,21 +1,21 @@
 # Sail Maeva CRM MVP
 
-MVP-сервер для одного рабочего сценария: клиент пишет в Telegram Business-аккаунт, сервер принимает `business_message`, создаёт или обновляет контакт и сделку в amoCRM, пишет входящее сообщение в примечание, отправляет автоответ клиенту и уведомляет ассистента.
+MVP-сервер для одного рабочего сценария: клиент пишет в Telegram Business-аккаунт, сервер принимает `business_message`, сохраняет входящее сообщение, ставит отложенную AI-задачу на 45-120 секунд, затем либо отправляет ответ в стиле Маши, либо передаёт ассистенту.
 
-Без сайта, админки, аналитики и ИИ.
+Без сайта, админки и аналитики.
 
 ## Как работает
 
 1. Telegram присылает webhook на `POST /telegram/webhook`.
 2. Сервер принимает `business_message`.
 3. В SQLite сохраняются пользователь, диалог, входящее сообщение и классификация.
-4. В amoCRM ищется или создаётся контакт.
-5. В amoCRM ищется или создаётся сделка.
-6. В сделку добавляется примечание с текстом входящего сообщения.
-7. Сделка переводится в нужный статус.
-8. Если лид горячий, создаётся задача ассистенту.
-9. Клиент получает автоответ через `business_connection_id`.
-10. Ассистент получает уведомление в Telegram.
+4. Создаётся запись в очереди delayed responses.
+5. Через 45-120 секунд AI анализирует сообщение и историю.
+6. AI выбирает режим: `auto_send`, `draft_for_assistant` или `hold_for_human`.
+7. Если безопасно, клиент получает ответ через `business_connection_id`.
+8. Если нужен человек, ассистент получает уведомление и/или черновик в Telegram.
+
+amoCRM в текущем AI-assisted этапе не используется.
 
 ## Telegram: что взять
 
@@ -58,6 +58,39 @@ ALLOWED_TELEGRAM_USER_IDS=123456789
 - скопируйте значение `Id`;
 - вставьте его в `ALLOWED_TELEGRAM_USER_IDS`;
 - если тестируют несколько людей, укажите ID через запятую.
+
+## AI-assisted ответы
+
+Нужно добавить:
+
+```env
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-mini
+AI_RESPONSES_ENABLED=true
+AI_REPLY_DELAY_MIN_SECONDS=45
+AI_REPLY_DELAY_MAX_SECONDS=120
+```
+
+Материалы стиля лежат здесь:
+
+```text
+src/config/style_guide.md
+src/config/examples.json
+```
+
+Режимы решения:
+
+- `auto_send` - AI сам отправляет клиенту ответ в стиле Маши.
+- `draft_for_assistant` - AI готовит черновик и отправляет ассистенту.
+- `hold_for_human` - AI не отвечает клиенту и передаёт ассистенту.
+
+Защитные темы всегда уходят человеку:
+
+- оплата;
+- договор;
+- реквизиты;
+- конфликт;
+- бронь/закрепление места.
 
 ## amoCRM: что взять
 
@@ -105,6 +138,12 @@ TELEGRAM_BOT_TOKEN=
 TELEGRAM_WEBHOOK_SECRET=
 PUBLIC_WEBHOOK_URL=
 ALLOWED_TELEGRAM_USER_IDS=
+
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-mini
+AI_RESPONSES_ENABLED=true
+AI_REPLY_DELAY_MIN_SECONDS=45
+AI_REPLY_DELAY_MAX_SECONDS=120
 
 AMO_BASE_URL=
 AMO_ACCESS_TOKEN=

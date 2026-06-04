@@ -3,6 +3,7 @@ import { pinoHttp } from "pino-http";
 import { env } from "./config/env.js";
 import { logger } from "./logger.js";
 import { createTelegramWebhookRouter } from "./telegram/webhook.js";
+import { startDelayedResponseWorker } from "./logic/delayedResponses.js";
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
 
 app.listen(env.PORT, () => {
   logger.info({ port: env.PORT }, "Sail Maeva MVP server started");
+  startDelayedResponseWorker();
 });
 
 function serializeError(error: unknown) {

@@ -9,6 +9,7 @@ type SendMessageInput = {
 export type TelegramBusinessConnection = {
   id: string;
   is_enabled?: boolean;
+  can_reply?: boolean;
   user_chat_id?: number;
   rights?: {
     can_reply?: boolean;

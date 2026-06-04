@@ -8,6 +8,11 @@ const schema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
   PUBLIC_WEBHOOK_URL: z.string().optional(),
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().default("gpt-4.1-mini"),
+  AI_RESPONSES_ENABLED: z.enum(["true", "false"]).default("true").transform((value) => value === "true"),
+  AI_REPLY_DELAY_MIN_SECONDS: z.coerce.number().default(45),
+  AI_REPLY_DELAY_MAX_SECONDS: z.coerce.number().default(120),
   ALLOWED_TELEGRAM_USER_IDS: z.string().default("").transform((value) =>
     value
       .split(",")

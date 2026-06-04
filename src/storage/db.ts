@@ -23,6 +23,39 @@ export type ConversationRecord = {
   assigned_to: string;
 };
 
+export type MessageRecord = {
+  id: number;
+  conversation_id: number;
+  direction: "inbound" | "outbound";
+  text: string;
+  raw_json: string | null;
+  created_at: string;
+};
+
+export type DelayedResponseRecord = {
+  id: number;
+  message_id: number;
+  conversation_id: number;
+  due_at: string;
+  status: "pending" | "processing" | "done" | "failed";
+  attempts: number;
+  last_error: string | null;
+};
+
+export type AiDecisionInput = {
+  messageId: number;
+  conversationId: number;
+  mode: "auto_send" | "draft_for_assistant" | "hold_for_human";
+  intent: string;
+  confidence: number;
+  riskFlags: string[];
+  reason: string;
+  draftText?: string;
+  finalText?: string;
+  model?: string;
+  rawJson?: unknown;
+};
+
 export type UpsertUserInput = {
   telegramUserId?: string;
   username?: string;
@@ -149,5 +182,112 @@ export class AppDb {
       INSERT INTO classifications (message_id, intent, is_hot, fear, destination, confidence)
       VALUES (@messageId, @intent, @isHot, @fear, @destination, @confidence)
     `).run({ ...input, isHot: input.isHot ? 1 : 0 });
+  }
+
+  enqueueDelayedResponse(input: { messageId: number; conversationId: number; dueAt: Date }): number {
+    const result = this.db.prepare(`
+      INSERT INTO delayed_responses (message_id, conversation_id, due_at)
+      VALUES (@messageId, @conversationId, @dueAt)
+    `).run({
+      messageId: input.messageId,
+      conversationId: input.conversationId,
+      dueAt: input.dueAt.toISOString()
+    });
+    return Number(result.lastInsertRowid);
+  }
+
+  getDueDelayedResponses(limit = 10): DelayedResponseRecord[] {
+    return this.db.prepare(`
+      SELECT * FROM delayed_responses
+      WHERE status = 'pending'
+        AND due_at <= @now
+      ORDER BY due_at ASC
+      LIMIT @limit
+    `).all({ now: new Date().toISOString(), limit }) as DelayedResponseRecord[];
+  }
+
+  markDelayedResponseProcessing(id: number): void {
+    this.db.prepare(`
+      UPDATE delayed_responses
+      SET status = 'processing',
+          attempts = attempts + 1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(id);
+  }
+
+  markDelayedResponseDone(id: number): void {
+    this.db.prepare(`
+      UPDATE delayed_responses
+      SET status = 'done',
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(id);
+  }
+
+  markDelayedResponseFailed(id: number, error: string): void {
+    this.db.prepare(`
+      UPDATE delayed_responses
+      SET status = CASE WHEN attempts >= 3 THEN 'failed' ELSE 'pending' END,
+          due_at = @dueAt,
+          last_error = @error,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = @id
+    `).run({
+      id,
+      error,
+      dueAt: new Date(Date.now() + 60_000).toISOString()
+    });
+  }
+
+  getMessage(id: number): MessageRecord {
+    const message = this.db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as MessageRecord | undefined;
+    if (!message) throw new Error(`Message ${id} was not found`);
+    return message;
+  }
+
+  getRecentMessages(conversationId: number, limit = 8): MessageRecord[] {
+    return this.db.prepare(`
+      SELECT * FROM messages
+      WHERE conversation_id = ?
+      ORDER BY id DESC
+      LIMIT ?
+    `).all(conversationId, limit).reverse() as MessageRecord[];
+  }
+
+  saveAiDecision(input: AiDecisionInput): number {
+    const result = this.db.prepare(`
+      INSERT INTO ai_decisions (
+        message_id,
+        conversation_id,
+        mode,
+        intent,
+        confidence,
+        risk_flags,
+        reason,
+        draft_text,
+        final_text,
+        model,
+        raw_json
+      )
+      VALUES (
+        @messageId,
+        @conversationId,
+        @mode,
+        @intent,
+        @confidence,
+        @riskFlags,
+        @reason,
+        @draftText,
+        @finalText,
+        @model,
+        @rawJson
+      )
+    `).run({
+      ...input,
+      riskFlags: JSON.stringify(input.riskFlags),
+      rawJson: input.rawJson ? JSON.stringify(input.rawJson) : null
+    });
+    return Number(result.lastInsertRowid);
   }
 }

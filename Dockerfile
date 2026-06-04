@@ -26,6 +26,8 @@ WORKDIR /app
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/src/config/style_guide.md ./src/config/style_guide.md
+COPY --from=build /app/src/config/examples.json ./src/config/examples.json
 
 EXPOSE 3000
 
