@@ -8,18 +8,22 @@ import type { AIResponseDecision } from "../types.js";
 import { getDelaySeconds } from "./responseDelay.js";
 import { checkSafety } from "./safetyChecker.js";
 import { requestAiJson } from "./openaiClient.js";
+import { detectSalesHandoff } from "./salesHandoff.js";
 
 const knowledgeRoot = path.join(process.cwd(), "src", "ai", "knowledge");
 
+const intentEnum = ["details", "price", "solo", "life_on_board", "seasick", "safety", "flights", "booking_payment", "contract", "thinking", "emotional_warm", "relative_concern", "date_unavailable", "unknown"] as const;
+
 const decisionSchema = z.object({
-  intent: z.enum(["details", "price", "solo", "life_on_board", "seasick", "safety", "flights", "booking_payment", "contract", "thinking", "emotional_warm", "relative_concern", "date_unavailable", "unknown"]),
-  decision: z.enum(["auto_send", "draft_for_assistant", "hold_for_human"]),
+  intent: z.enum(intentEnum),
+  decision: z.enum(["ai_auto_send", "human_handoff"]),
   confidence: z.number().min(0).max(1),
   riskLevel: z.enum(["low", "medium", "high"]),
   clientMood: z.string(),
   detectedFear: z.string(),
   answerText: z.string(),
   assistantNote: z.string(),
+  handoffReason: z.string(),
   delaySeconds: z.number(),
   shouldNotifyAssistant: z.boolean(),
   shouldSaveMemory: z.boolean(),
@@ -30,28 +34,31 @@ const jsonSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    intent: { type: "string", enum: ["details", "price", "solo", "life_on_board", "seasick", "safety", "flights", "booking_payment", "contract", "thinking", "emotional_warm", "relative_concern", "date_unavailable", "unknown"] },
-    decision: { type: "string", enum: ["auto_send", "draft_for_assistant", "hold_for_human"] },
+    intent: { type: "string", enum: intentEnum },
+    decision: { type: "string", enum: ["ai_auto_send", "human_handoff"] },
     confidence: { type: "number" },
     riskLevel: { type: "string", enum: ["low", "medium", "high"] },
     clientMood: { type: "string" },
     detectedFear: { type: "string" },
     answerText: { type: "string" },
     assistantNote: { type: "string" },
+    handoffReason: { type: "string" },
     delaySeconds: { type: "number" },
     shouldNotifyAssistant: { type: "boolean" },
     shouldSaveMemory: { type: "boolean" },
     forbiddenTriggered: { type: "boolean" }
   },
-  required: ["intent", "decision", "confidence", "riskLevel", "clientMood", "detectedFear", "answerText", "assistantNote", "delaySeconds", "shouldNotifyAssistant", "shouldSaveMemory", "forbiddenTriggered"]
+  required: ["intent", "decision", "confidence", "riskLevel", "clientMood", "detectedFear", "answerText", "assistantNote", "handoffReason", "delaySeconds", "shouldNotifyAssistant", "shouldSaveMemory", "forbiddenTriggered"]
 } as const;
 
 export async function classifyWithAI(input: string, conversationContext: MessageRecord[]): Promise<AIResponseDecision> {
-  const handoff = detectHandoff(input);
-  if (handoff) return fallbackDecision(input, handoff.intent, "hold_for_human", handoff.reason, true);
+  const handoff = detectSalesHandoff(input);
+  if (handoff && env.HUMAN_HANDOFF_ON_SALES) {
+    return humanHandoff(input, handoff.intent, handoff.reason, true);
+  }
 
   if (!env.AI_RESPONSES_ENABLED || !env.OPENAI_API_KEY) {
-    return fallbackDecision(input, detectIntent(input), "draft_for_assistant", "AI отключён или ключ не задан", false);
+    return humanHandoff(input, detectIntent(input), "AI отключён или ключ не задан", false);
   }
 
   try {
@@ -60,25 +67,44 @@ export async function classifyWithAI(input: string, conversationContext: Message
       jsonSchema
     );
     const decision = decisionSchema.parse(parsed);
-    const delaySeconds = getDelaySeconds(decision.decision, decision.intent, input.length);
 
-    if (decision.confidence < env.HUMAN_HANDOFF_CONFIDENCE_THRESHOLD) {
-      return { ...decision, decision: "hold_for_human", riskLevel: "high", shouldNotifyAssistant: true, delaySeconds: 0, raw };
+    const safety = checkSafety(decision.answerText);
+    const canAutoSend =
+      env.AI_AUTO_SEND_ENABLED &&
+      decision.decision === "ai_auto_send" &&
+      decision.riskLevel === "low" &&
+      decision.confidence >= env.AUTO_SEND_CONFIDENCE_THRESHOLD &&
+      !decision.forbiddenTriggered &&
+      safety.safe;
+
+    if (!canAutoSend) {
+      return {
+        ...decision,
+        decision: "human_handoff",
+        riskLevel: decision.riskLevel === "low" ? "medium" : decision.riskLevel,
+        answerText: "",
+        shouldNotifyAssistant: true,
+        handoffReason: decision.handoffReason || `AI не прошёл пороги автоответа${safety.flags.length ? `: ${safety.flags.join(", ")}` : ""}`,
+        delaySeconds: 0,
+        raw
+      };
     }
 
-    if (decision.confidence < env.AUTO_SEND_CONFIDENCE_THRESHOLD && decision.decision === "auto_send") {
-      return { ...decision, decision: "draft_for_assistant", riskLevel: "medium", shouldNotifyAssistant: true, delaySeconds: 0, raw };
-    }
-
-    return { ...decision, delaySeconds, raw };
+    return {
+      ...decision,
+      delaySeconds: getDelaySeconds("ai_auto_send", decision.intent, input.length),
+      shouldNotifyAssistant: false,
+      raw
+    };
   } catch (error) {
-    return fallbackDecision(input, detectIntent(input), "draft_for_assistant", `AI JSON fallback: ${error instanceof Error ? error.message : String(error)}`, false);
+    return humanHandoff(input, detectIntent(input), `AI fallback: ${error instanceof Error ? error.message : String(error)}`, false);
   }
 }
 
 function loadKnowledge(): unknown {
   return {
     styleGuide: readText("maeva_style_guide.md"),
+    scriptedResponses: readJson("scripted_responses.json"),
     responseExamples: readJson("response_examples.json"),
     faq: readJson("faq_knowledge.json"),
     handoffRules: readJson("handoff_rules.json"),
@@ -86,45 +112,31 @@ function loadKnowledge(): unknown {
   };
 }
 
-function detectHandoff(text: string): { intent: AIResponseDecision["intent"]; reason: string } | undefined {
-  const normalized = text.toLowerCase();
-  const rules = readJson<{ always_hold?: string[] }>("handoff_rules.json").always_hold ?? [];
-  const matched = rules.find((item) => normalized.includes(item.toLowerCase()));
-  if (!matched) return undefined;
-  return {
-    intent: /договор/i.test(matched) ? "contract" : /бронь|забронировать|оплат|реквизит|стоимость/i.test(matched) ? "booking_payment" : "unknown",
-    reason: `Тема требует человека: ${matched}`
-  };
-}
-
 function detectIntent(text: string): AIResponseDecision["intent"] {
   if (/одн(а|ой)|никого не знаю/i.test(text)) return "solo";
   if (/стоим|цен|сколько/i.test(text)) return "price";
-  if (/договор/i.test(text)) return "contract";
+  if (/договор|чек/i.test(text)) return "contract";
   if (/брон|оплат|реквиз/i.test(text)) return "booking_payment";
   if (/турц|таиланд|подроб/i.test(text)) return "details";
   return "unknown";
 }
 
-function fallbackDecision(
+function humanHandoff(
   input: string,
   intent: AIResponseDecision["intent"],
-  decision: AIResponseDecision["decision"],
   reason: string,
   forbiddenTriggered: boolean
 ): AIResponseDecision {
-  const safety = checkSafety(input);
   return {
     intent,
-    decision,
-    confidence: forbiddenTriggered ? 1 : 0.45,
-    riskLevel: decision === "hold_for_human" ? "high" : "medium",
+    decision: "human_handoff",
+    confidence: forbiddenTriggered ? 1 : 0.5,
+    riskLevel: forbiddenTriggered ? "high" : "medium",
     clientMood: "",
     detectedFear: intent === "solo" ? "боится ехать одной" : "",
-    answerText: intent === "solo"
-      ? "Ой, это очень понятный страх. Я бы ответила мягко: одной ехать нормально, многие приезжают без знакомых, а Маша заранее знакомится с каждым, чтобы на борту было спокойно."
-      : `Клиент написал: "${input}". Подготовь ответ в стиле Маши, без выдуманных фактов.`,
-    assistantNote: `${reason}${safety.flags.length ? `; safety: ${safety.flags.join(", ")}` : ""}`,
+    answerText: "",
+    assistantNote: `Клиент написал: "${input}". Бот молчит. Причина передачи: ${reason}`,
+    handoffReason: reason,
     delaySeconds: 0,
     shouldNotifyAssistant: true,
     shouldSaveMemory: false,

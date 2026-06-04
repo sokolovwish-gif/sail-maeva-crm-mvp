@@ -14,7 +14,7 @@ export type AIIntent =
   | "date_unavailable"
   | "unknown";
 
-export type AIDecision = "auto_send" | "draft_for_assistant" | "hold_for_human";
+export type AIDecision = "scripted_auto_send" | "ai_auto_send" | "human_handoff";
 export type AIRiskLevel = "low" | "medium" | "high";
 
 export type AIResponseDecision = {
@@ -26,10 +26,10 @@ export type AIResponseDecision = {
   detectedFear: string;
   answerText: string;
   assistantNote: string;
+  handoffReason: string;
   delaySeconds: number;
   shouldNotifyAssistant: boolean;
   shouldSaveMemory: boolean;
   forbiddenTriggered: boolean;
   raw?: unknown;
 };
-

@@ -45,8 +45,8 @@ export type DelayedResponseRecord = {
 export type AiDecisionInput = {
   messageId: number;
   conversationId: number;
-  mode: "auto_send" | "draft_for_assistant" | "hold_for_human";
-  decision?: "auto_send" | "draft_for_assistant" | "hold_for_human";
+  mode: "scripted_auto_send" | "ai_auto_send" | "human_handoff";
+  decision?: "scripted_auto_send" | "ai_auto_send" | "human_handoff";
   intent: string;
   confidence: number;
   riskLevel?: string;

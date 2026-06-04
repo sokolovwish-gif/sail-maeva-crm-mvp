@@ -4,6 +4,7 @@ import path from "node:path";
 const root = path.join(process.cwd(), "src", "ai", "knowledge");
 const jsonFiles = [
   "response_examples.json",
+  "scripted_responses.json",
   "faq_knowledge.json",
   "handoff_rules.json",
   "forbidden_phrases.json",
@@ -32,6 +33,13 @@ for (const [index, example] of examples.entries()) {
 const forbidden = readJson<string[]>("forbidden_phrases.json", []);
 if (forbidden.length === 0) errors.push("forbidden_phrases.json must not be empty");
 
+const scripted = readJson<Record<string, string[]>>("scripted_responses.json", {});
+for (const [intent, variants] of Object.entries(scripted)) {
+  if (!Array.isArray(variants) || variants.length < 2) {
+    errors.push(`scripted_responses.json.${intent} must include at least 2 variants`);
+  }
+}
+
 if (errors.length > 0) {
   console.error("\nKnowledge validation failed:");
   for (const error of errors) console.error(`- ${error}`);
@@ -47,4 +55,3 @@ function readJson<T>(file: string, fallback: T): T {
     return fallback;
   }
 }
-

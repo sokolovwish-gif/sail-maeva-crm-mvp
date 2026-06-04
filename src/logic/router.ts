@@ -3,6 +3,7 @@ import { logger } from "../logger.js";
 import { AppDb } from "../storage/db.js";
 import { TelegramSender } from "../telegram/sender.js";
 import type { IncomingTelegramMessage, TelegramUpdate } from "../telegram/types.js";
+import { detectSalesHandoff } from "../ai/services/salesHandoff.js";
 import { randomReplyDelayMs } from "./delayedResponses.js";
 
 const db = new AppDb();
@@ -90,7 +91,8 @@ export async function handleIncomingMessage(incoming: IncomingTelegramMessage, r
     }
   }
 
-  const delayMs = env.AI_DRAFT_ONLY || !env.AI_AUTO_SEND_ENABLED ? 0 : randomReplyDelayMs();
+  const mustNotifyHumanNow = env.HUMAN_HANDOFF_ON_SALES && Boolean(detectSalesHandoff(text));
+  const delayMs = mustNotifyHumanNow ? 0 : randomReplyDelayMs();
   const jobId = db.enqueueDelayedResponse({
     messageId,
     conversationId: conversation.id,

@@ -62,13 +62,13 @@ async function processJob(job: DelayedResponseRecord): Promise<void> {
       answerText: decision.answerText,
       assistantNote: decision.assistantNote,
       forbiddenTriggered: decision.forbiddenTriggered,
-      draftText: decision.decision === "draft_for_assistant" ? decision.answerText : undefined,
-      finalText: decision.decision === "auto_send" ? decision.answerText : undefined,
+      draftText: undefined,
+      finalText: decision.decision === "scripted_auto_send" || decision.decision === "ai_auto_send" ? decision.answerText : undefined,
       model: env.OPENAI_MODEL,
       rawJson: decision.raw
     });
 
-    if (decision.decision === "auto_send" && decision.answerText) {
+    if ((decision.decision === "scripted_auto_send" || decision.decision === "ai_auto_send") && decision.answerText) {
       await telegram.sendMessage({
         chatId: conversation.telegram_chat_id,
         text: decision.answerText,
@@ -76,7 +76,7 @@ async function processJob(job: DelayedResponseRecord): Promise<void> {
       });
       db.saveMessage({ conversationId: conversation.id, direction: "outbound", text: decision.answerText });
       logger.info({ jobId: job.id, conversationId: conversation.id, intent: decision.intent }, "AI auto-reply sent");
-    } else {
+    } else if (decision.decision === "human_handoff") {
       await notifyAssistant(message.text, decision);
       logger.info({ jobId: job.id, conversationId: conversation.id, mode: decision.decision, intent: decision.intent }, "AI decision sent to assistant");
     }
@@ -92,38 +92,18 @@ async function notifyAssistant(lastMessage: string, decision: AIResponseDecision
   const assistantChatId = env.ASSISTANT_TELEGRAM_CHAT_ID ?? env.MANAGER_TELEGRAM_CHAT_ID;
   if (!assistantChatId) return;
 
-  const text = decision.decision === "hold_for_human"
-    ? [
+  const text = [
         "Нужен человек Sail Maeva",
         "",
         "Сообщение клиента:",
         lastMessage,
         "",
-        `Причина: ${decision.intent}`,
-        `Риск: ${decision.riskLevel}`,
-        "Заметка:",
-        decision.assistantNote,
-        "",
-        "Бот молчит, чтобы не испортить продажу."
-      ].join("\n")
-    : [
-        "Черновик ответа Sail Maeva",
-        "",
-        "Сообщение клиента:",
-        lastMessage,
-        "",
-        `Решение ИИ: ${decision.decision}`,
+        `Причина передачи: ${decision.handoffReason || decision.assistantNote}`,
         `Интент: ${decision.intent}`,
         `Риск: ${decision.riskLevel}`,
         `Уверенность: ${decision.confidence}`,
         "",
-        "Черновик:",
-        decision.answerText,
-        "",
-        "Заметка:",
-        decision.assistantNote,
-        "",
-        "Важно: клиенту пока ничего не отправлено."
+        "Бот молчит и клиенту ничего не отправлено."
       ].join("\n");
 
   await telegram.sendMessage({

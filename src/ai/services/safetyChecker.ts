@@ -14,10 +14,10 @@ export function checkSafety(text: string): { safe: boolean; flags: string[] } {
   }
 
   const riskyPatterns = [
-    { name: "payment_details", pattern: /(номер карты|реквизит|перевод[а-я]*|оплат[а-я]* сюда)/i },
+    { name: "payment_details", pattern: /(номер карты|реквизит|перевод[а-я]*|оплат[а-я]* сюда|куда платить)/i },
     { name: "exact_price", pattern: /\b\d{3,}\s?(евро|eur|€|руб|₽|\$|usd)\b/i },
-    { name: "legal_promise", pattern: /(договор не нужен|гарантир[а-я]+|юридически)/i },
-    { name: "availability_promise", pattern: /(место точно|место за вами|точно есть место)/i }
+    { name: "legal_promise", pattern: /(договор не нужен|гарантир[а-я]+|юридически|чек)/i },
+    { name: "availability_promise", pattern: /(место точно|место за вами|точно есть место|наличие мест)/i }
   ];
 
   for (const rule of riskyPatterns) {
@@ -35,10 +35,12 @@ export function applySafetyDecision(decision: AIResponseDecision): AIResponseDec
 
   return {
     ...decision,
-    decision: "draft_for_assistant",
-    riskLevel: decision.riskLevel === "low" ? "medium" : decision.riskLevel,
+    decision: "human_handoff",
+    riskLevel: "high",
+    answerText: "",
     shouldNotifyAssistant: true,
     forbiddenTriggered: true,
+    handoffReason: `Safety checker blocked response: ${safety.flags.join(", ")}`,
     assistantNote: `${decision.assistantNote}\nSafety flags: ${safety.flags.join(", ")}`
   };
 }
@@ -50,4 +52,3 @@ function readJson<T>(fileName: string, fallback: T): T {
     return fallback;
   }
 }
-

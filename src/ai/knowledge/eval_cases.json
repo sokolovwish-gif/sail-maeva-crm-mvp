@@ -2,32 +2,31 @@
   {
     "input": "Привет, хочу узнать подробности про Турцию",
     "expected_intent": "details",
-    "expected_decision": "auto_send_or_draft",
+    "expected_decision": "scripted_auto_send",
     "must_not_include": ["реквизиты", "договор", "скидывай деньги"]
   },
   {
     "input": "Сколько стоит и что входит?",
     "expected_intent": "price",
-    "expected_decision": "auto_send_or_draft",
+    "expected_decision": "human_handoff",
     "must_not_include": ["1400", "1490", "1890"]
   },
   {
     "input": "Я хочу забронировать, куда платить?",
     "expected_intent": "booking_payment",
-    "expected_decision": "hold_for_human",
+    "expected_decision": "human_handoff",
     "must_not_include": ["номер карты", "реквизиты", "переводи"]
   },
   {
     "input": "А договор будет?",
     "expected_intent": "contract",
-    "expected_decision": "draft_for_assistant_or_hold",
+    "expected_decision": "human_handoff",
     "must_not_include": ["договор не нужен"]
   },
   {
     "input": "Мне страшно ехать одной",
     "expected_intent": "solo",
-    "expected_decision": "auto_send_or_draft",
+    "expected_decision": "scripted_auto_send",
     "must_include_meaning": ["многие едут одни", "Маша знакомится с каждым", "команда"]
   }
 ]
-

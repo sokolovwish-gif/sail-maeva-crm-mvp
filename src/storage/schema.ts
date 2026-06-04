@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS ai_decisions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   message_id INTEGER NOT NULL,
   conversation_id INTEGER NOT NULL,
-  mode TEXT NOT NULL CHECK(mode IN ('auto_send', 'draft_for_assistant', 'hold_for_human')),
+  mode TEXT NOT NULL CHECK(mode IN ('scripted_auto_send', 'ai_auto_send', 'human_handoff')),
   decision TEXT,
   intent TEXT NOT NULL,
   confidence REAL NOT NULL DEFAULT 0,
