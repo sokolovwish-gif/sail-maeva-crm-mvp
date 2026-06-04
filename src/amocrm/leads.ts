@@ -7,7 +7,7 @@ type LeadsResponse = { _embedded?: { leads?: AmoLead[] } };
 
 export async function findLead(client: AmoClient, query: string): Promise<AmoLead | undefined> {
   const response = await client.request<LeadsResponse>("/api/v4/leads", { query: { query } });
-  return response._embedded?.leads?.[0];
+  return response?._embedded?.leads?.[0];
 }
 
 export async function createLead(client: AmoClient, input: {
@@ -29,7 +29,9 @@ export async function createLead(client: AmoClient, input: {
       }
     }]
   });
-  return response._embedded.leads[0];
+  const lead = response?._embedded?.leads?.[0];
+  if (!lead) throw new Error("amoCRM lead create returned no lead");
+  return lead;
 }
 
 export async function updateLead(client: AmoClient, leadId: number, input: {

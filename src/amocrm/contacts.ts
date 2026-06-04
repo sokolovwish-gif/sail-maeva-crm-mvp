@@ -6,7 +6,7 @@ type ContactsResponse = { _embedded?: { contacts?: AmoContact[] } };
 
 export async function findContact(client: AmoClient, query: string): Promise<AmoContact | undefined> {
   const response = await client.request<ContactsResponse>("/api/v4/contacts", { query: { query } });
-  return response._embedded?.contacts?.[0];
+  return response?._embedded?.contacts?.[0];
 }
 
 export async function createContact(client: AmoClient, input: {
@@ -33,7 +33,9 @@ export async function createContact(client: AmoClient, input: {
     }]
   });
 
-  return response._embedded.contacts[0];
+  const contact = response?._embedded?.contacts?.[0];
+  if (!contact) throw new Error("amoCRM contact create returned no contact");
+  return contact;
 }
 
 function textField(fieldId: number, value: string) {
